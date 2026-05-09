@@ -34,7 +34,7 @@ except ImportError:
         @abstractmethod
         def get_tool_schemas(self) -> list[dict]: ...
         @abstractmethod
-        def handle_tool_call(self, name: str, args: dict) -> Any: ...
+        def handle_tool_call(self, name: str, args: dict) -> str: ...
         def get_config_schema(self) -> list[dict]: return []
         def save_config(self, values: dict, hermes_home: str) -> None: pass
         def system_prompt_block(self) -> str: return ""
@@ -242,14 +242,19 @@ class AgentMemoryProvider(MemoryProvider):
             },
         ]
 
-    def handle_tool_call(self, name: str, args: dict) -> Any:
+    def handle_tool_call(self, name: str, args: dict) -> str:
+        # Hermes stores the return value as the tool result `content` in the
+        # session history. Anthropic-protocol providers reject non-string
+        # content with a 400 on the next request, so always serialize to a
+        # JSON string here — matches what agentmemory's main MCP server does
+        # in src/mcp/standalone.ts (`{ type: "text", text: JSON.stringify(...) }`).
         if name == "memory_recall":
             result = _api(self._base, "search", {
                 "query": args["query"],
                 "limit": args.get("limit", 10),
             })
             if not result:
-                return {"results": []}
+                return json.dumps({"results": []})
             items = []
             for r in result.get("results", []):
                 obs = r.get("observation", r)
@@ -260,14 +265,14 @@ class AgentMemoryProvider(MemoryProvider):
                     "importance": obs.get("importance", 0),
                     "timestamp": obs.get("timestamp", ""),
                 })
-            return {"results": items}
+            return json.dumps({"results": items})
 
         if name == "memory_save":
             result = _api(self._base, "remember", {
                 "content": args["content"],
                 "type": args.get("type", "fact"),
             })
-            return result or {"success": False}
+            return json.dumps(result or {"success": False})
 
         if name == "memory_search":
             result = _api(self._base, "smart-search", {
@@ -275,7 +280,7 @@ class AgentMemoryProvider(MemoryProvider):
                 "limit": args.get("limit", 5),
             })
             if not result:
-                return {"results": []}
+                return json.dumps({"results": []})
             items = []
             for r in result.get("results", []):
                 obs = r.get("observation", r)
@@ -284,9 +289,9 @@ class AgentMemoryProvider(MemoryProvider):
                     "narrative": obs.get("narrative", "")[:300],
                     "score": r.get("combinedScore", r.get("score", 0)),
                 })
-            return {"results": items}
+            return json.dumps({"results": items})
 
-        return {"error": f"Unknown tool: {name}"}
+        return json.dumps({"error": f"Unknown tool: {name}"})
 
     def sync_turn(self, user: str, assistant: str, **kwargs: Any) -> None:
         _api_bg(self._base, "observe", {

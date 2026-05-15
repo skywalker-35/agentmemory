@@ -38,11 +38,28 @@ import {
   type ConnectManifest,
   type RemoveOptions,
 } from "./cli/remove-plan.js";
+import { renderSplash } from "./cli/splash.js";
+import { isFirstRun, readPrefs, resetPrefs, writePrefs } from "./cli/preferences.js";
+import { runOnboarding } from "./cli/onboarding.js";
+import { setBootVerbose } from "./logger.js";
+import { VERSION } from "./version.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 const IS_WINDOWS = platform() === "win32";
-const IS_VERBOSE = args.includes("--verbose") || args.includes("-v");
+const IS_VERBOSE =
+  args.includes("--verbose") ||
+  args.includes("-v") ||
+  process.env["AGENTMEMORY_VERBOSE"] === "1" ||
+  process.env["AGENTMEMORY_VERBOSE"] === "true";
+
+// Propagate the resolved verbosity to the worker's boot logger so the
+// 25-line `[agentmemory] X registered` stream is either dropped or
+// printed verbatim. Without this the worker's default (env-only) would
+// disagree with the CLI flag.
+setBootVerbose(IS_VERBOSE);
+
+const IS_RESET = args.includes("--reset");
 
 // Pinned iii-engine version. The unpinned `install.iii.dev/iii/main/install.sh`
 // script tracks `latest`, which made every fresh agentmemory install pull
@@ -123,7 +140,8 @@ Commands:
 
 Options:
   --help, -h         Show this help
-  --verbose, -v      Show engine stderr and diagnostic info on startup
+  --verbose, -v      Show engine stderr, boot log, and diagnostic info
+  --reset            Wipe ~/.agentmemory/preferences.json and re-run onboarding
   --tools all|core   Tool visibility (default: core = 7 tools)
   --no-engine        Skip auto-starting iii-engine
   --port <N>         Override REST port (default: 3111)
@@ -710,23 +728,61 @@ function portInUseDiagnostic(port: number): string {
     : `  lsof -i :${port}   # or: ss -tlnp | grep :${port}`;
 }
 
+async function waitForAgentmemoryReady(timeoutMs: number): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (await isAgentmemoryReady()) return true;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return false;
+}
+
+function printReadyHint(): void {
+  const port = getRestPort();
+  const viewer = getViewerUrl();
+  const hint = `Memory ready on :${port} · viewer on ${viewer} · try: agentmemory demo`;
+  // Use plain stdout (not p.outro) so the hint isn't decorated with
+  // clack's closing line — it reads as a status, not an end-of-flow.
+  process.stdout.write("\n" + hint + "\n");
+}
+
 async function main() {
-  p.intro("agentmemory");
+  // `--reset` wipes preferences before anything else so the onboarding
+  // flow below always runs fresh.
+  if (IS_RESET) {
+    resetPrefs();
+  }
+
+  const firstRun = isFirstRun();
+  const prefs = readPrefs();
+  // Show the splash on the first run, on --reset, or whenever the user
+  // hasn't yet opted out via the schema (we set `skipSplash: true`
+  // after onboarding completes). Verbose runs always splash since the
+  // user explicitly asked for the chatty experience.
+  if (firstRun || IS_RESET || IS_VERBOSE || !prefs.skipSplash) {
+    renderSplash(VERSION);
+  }
+
+  if (firstRun || IS_RESET) {
+    await runOnboarding();
+  }
 
   if (skipEngine) {
-    p.log.info("Skipping engine check (--no-engine)");
+    if (IS_VERBOSE) p.log.info("Skipping engine check (--no-engine)");
     await import("./index.js");
+    if (await waitForAgentmemoryReady(15000)) printReadyHint();
     return;
   }
 
   if (await isEngineRunning()) {
-    p.log.success("iii-engine is running");
+    if (IS_VERBOSE) p.log.success("iii-engine is running");
     const attachedBin =
       whichBinary("iii") ?? fallbackIiiPaths().find((p) => existsSync(p)) ?? null;
     warnIfEngineVersionMismatch(attachedBin);
     adoptRunningEngine();
     maybeEmitNpxHint();
     await import("./index.js");
+    if (await waitForAgentmemoryReady(15000)) printReadyHint();
     return;
   }
 
@@ -796,6 +852,10 @@ async function main() {
   s.stop("iii-engine is ready");
   maybeEmitNpxHint();
   await import("./index.js");
+  if (await waitForAgentmemoryReady(15000)) printReadyHint();
+  // Mark splash as something to skip on subsequent runs. This is a
+  // no-op if onboarding already flipped the flag (idempotent merge).
+  writePrefs({ skipSplash: true });
 }
 
 async function apiFetch<T = unknown>(base: string, path: string, timeoutMs = 5000): Promise<T | null> {

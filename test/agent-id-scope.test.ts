@@ -1,0 +1,147 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
+vi.mock("../src/logger.js", () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+
+// #554: AGENT_ID scope for multi-agent memory isolation.
+
+describe("loadAgentScope (#554)", () => {
+  const ORIG = process.env["AGENT_ID"];
+  beforeEach(() => {
+    vi.resetModules();
+    delete process.env["AGENT_ID"];
+  });
+  afterEach(() => {
+    if (ORIG === undefined) delete process.env["AGENT_ID"];
+    else process.env["AGENT_ID"] = ORIG;
+  });
+
+  it("returns null when AGENT_ID is unset", async () => {
+    const { loadAgentScope, getAgentId } = await import("../src/config.js");
+    expect(loadAgentScope()).toBeNull();
+    expect(getAgentId()).toBeUndefined();
+  });
+
+  it("returns the agentId when AGENT_ID is set", async () => {
+    process.env["AGENT_ID"] = "architect";
+    const { loadAgentScope, getAgentId } = await import("../src/config.js");
+    expect(loadAgentScope()).toEqual({ agentId: "architect" });
+    expect(getAgentId()).toBe("architect");
+  });
+
+  it("trims whitespace and rejects empty after trim", async () => {
+    process.env["AGENT_ID"] = "  ";
+    const { loadAgentScope } = await import("../src/config.js");
+    expect(loadAgentScope()).toBeNull();
+  });
+
+  it("caps length at 128 chars to keep KV writes well-formed", async () => {
+    process.env["AGENT_ID"] = "x".repeat(500);
+    const { getAgentId } = await import("../src/config.js");
+    expect(getAgentId()!.length).toBe(128);
+  });
+});
+
+describe("mem::remember stamps agentId on the Memory (#554)", () => {
+  const ORIG = process.env["AGENT_ID"];
+  beforeEach(() => {
+    vi.resetModules();
+    delete process.env["AGENT_ID"];
+  });
+  afterEach(() => {
+    if (ORIG === undefined) delete process.env["AGENT_ID"];
+    else process.env["AGENT_ID"] = ORIG;
+  });
+
+  function mockKV() {
+    const store = new Map<string, Map<string, unknown>>();
+    return {
+      store,
+      get: async <T>(scope: string, key: string): Promise<T | null> =>
+        (store.get(scope)?.get(key) as T) ?? null,
+      set: async <T>(scope: string, key: string, data: T): Promise<T> => {
+        if (!store.has(scope)) store.set(scope, new Map());
+        store.get(scope)!.set(key, data);
+        return data;
+      },
+      delete: async (scope: string, key: string) => {
+        store.get(scope)?.delete(key);
+      },
+      list: async <T>(scope: string): Promise<T[]> => {
+        const m = store.get(scope);
+        return m ? (Array.from(m.values()) as T[]) : [];
+      },
+    };
+  }
+
+  function mockSdk() {
+    const fns = new Map<string, Function>();
+    return {
+      fns,
+      registerFunction: (idOrOpts: string | { id: string }, fn: Function) => {
+        const id = typeof idOrOpts === "string" ? idOrOpts : idOrOpts.id;
+        fns.set(id, fn);
+      },
+      trigger: async (
+        idOrInput: string | { function_id: string; payload: unknown },
+        data?: unknown,
+      ) => {
+        const id = typeof idOrInput === "string" ? idOrInput : idOrInput.function_id;
+        const payload = typeof idOrInput === "string" ? data : idOrInput.payload;
+        const fn = fns.get(id);
+        if (fn) return fn(payload);
+        return null;
+      },
+    };
+  }
+
+  it("stamps env AGENT_ID on Memory when no body override", async () => {
+    process.env["AGENT_ID"] = "developer";
+    const { registerRememberFunction } = await import(
+      "../src/functions/remember.js"
+    );
+    const sdk = mockSdk();
+    const kv = mockKV();
+    registerRememberFunction(sdk as never, kv as never);
+
+    const result = (await sdk.trigger("mem::remember", {
+      content: "prefer async-std over tokio",
+      type: "preference",
+    })) as { memory: { id: string; agentId?: string } };
+
+    expect(result.memory.agentId).toBe("developer");
+  });
+
+  it("body agentId overrides env AGENT_ID", async () => {
+    process.env["AGENT_ID"] = "architect";
+    const { registerRememberFunction } = await import(
+      "../src/functions/remember.js"
+    );
+    const sdk = mockSdk();
+    const kv = mockKV();
+    registerRememberFunction(sdk as never, kv as never);
+
+    const result = (await sdk.trigger("mem::remember", {
+      content: "use http-cache for github API",
+      agentId: "reviewer",
+    })) as { memory: { id: string; agentId?: string } };
+
+    expect(result.memory.agentId).toBe("reviewer");
+  });
+
+  it("no env, no body → no agentId on Memory (legacy)", async () => {
+    const { registerRememberFunction } = await import(
+      "../src/functions/remember.js"
+    );
+    const sdk = mockSdk();
+    const kv = mockKV();
+    registerRememberFunction(sdk as never, kv as never);
+
+    const result = (await sdk.trigger("mem::remember", {
+      content: "legacy unscoped memory",
+    })) as { memory: { id: string; agentId?: string } };
+
+    expect(result.memory.agentId).toBeUndefined();
+  });
+});

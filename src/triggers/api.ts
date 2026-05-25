@@ -18,6 +18,7 @@ import {
   isContextInjectionEnabled,
   detectEmbeddingProvider,
   detectLlmProviderKind,
+  getAgentId,
 } from "../config.js";
 
 type Response = {
@@ -536,6 +537,14 @@ export function registerApiTriggers(
         };
       }
       const title = typeof body.title === "string" ? body.title.trim() : undefined;
+      // #554: allow session/start to override AGENT_ID from request body
+      // (multi-agent runtimes that route many roles through one server
+      // process). Falls back to the AGENT_ID env on the server.
+      const requestAgentId =
+        typeof body.agentId === "string" && body.agentId.trim().length > 0
+          ? body.agentId.trim().slice(0, 128)
+          : undefined;
+      const agentId = requestAgentId ?? getAgentId();
       const session: Session = {
         id: sessionId,
         project,
@@ -545,6 +554,7 @@ export function registerApiTriggers(
         observationCount: 0,
         ...(title ? { summary: title.slice(0, 200) } : {}),
         ...(title ? { firstPrompt: title.slice(0, 200) } : {}),
+        ...(agentId ? { agentId } : {}),
       };
       await kv.set(KV.sessions, sessionId, session);
       const contextResult = await sdk.trigger<
@@ -1491,7 +1501,21 @@ export function registerApiTriggers(
       if (authErr) return authErr;
       const memories = await kv.list<import("../types.js").Memory>(KV.memories);
       const latest = req.query_params?.["latest"] === "true";
-      const filtered = latest ? memories.filter((m) => m.isLatest) : memories;
+      // #554: agentId filter. Request param wins, env AGENT_ID fallback.
+      // Pass agentId=* to explicitly opt out of the env-default scope and
+      // see memories from every agent.
+      const queryAgentId = req.query_params?.["agentId"];
+      const wildcardAgent =
+        typeof queryAgentId === "string" && queryAgentId === "*";
+      const filterAgentId = wildcardAgent
+        ? undefined
+        : typeof queryAgentId === "string" && queryAgentId.trim().length > 0
+          ? queryAgentId.trim()
+          : getAgentId();
+      let filtered = latest ? memories.filter((m) => m.isLatest) : memories;
+      if (filterAgentId) {
+        filtered = filtered.filter((m) => m.agentId === filterAgentId);
+      }
 
       // #544: viewer + `agentmemory status` were hitting this endpoint to
       // count memories. On a real corpus (8K+ memories) the unbounded

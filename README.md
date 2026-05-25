@@ -1092,6 +1092,41 @@ agentmemory auto-detects from your environment. By default, no LLM calls are mad
 | OpenRouter | `OPENROUTER_API_KEY` | Any model |
 | Claude subscription fallback | `AGENTMEMORY_ALLOW_AGENT_SDK=true` | Opt-in only. Spawns `@anthropic-ai/claude-agent-sdk` sessions — used to cause unbounded Stop-hook recursion (#149 follow-up) so it is no longer the default. |
 
+### Cost-aware model selection
+
+Background compression runs on every observation, so model choice meaningfully changes monthly spend. Captured workload data: 635 requests / 888K tokens / 35 hours of active use, run against three OpenRouter models at 2026-05-23 pricing.
+
+| Tier | Model | Input / 1M | Output / 1M | Cost for the captured 35h | Notes |
+|------|-------|------------|-------------|---------------------------|-------|
+| Recommended | `deepseek/deepseek-v4-pro` | $0.435 | $0.87 | ~$0.46 | Solid compression + summarization quality at ~10× lower cost than Sonnet. |
+| Recommended | `deepseek/deepseek-chat` | $0.27 | $1.10 | ~$0.40 | Older but still fine for compression-only workloads. |
+| Recommended | `qwen/qwen3-coder` | $0.45 | $1.80 | ~$0.55 | Strong code reasoning if your sessions are heavily code-shaped. |
+| Premium | `anthropic/claude-sonnet-4.6` | $3.00 | $15.00 | ~$5.02 | High quality but expensive for always-on background work. |
+| Premium | `openai/gpt-4o` | $2.50 | $10.00 | ~$4.20 | Similar tier to Sonnet. |
+| Avoid | `anthropic/claude-opus-4.6` | $15.00 | $75.00 | ~$25+ | Reasoning-class model; massive overspend for compression. |
+
+agentmemory prints a runtime warning when `OPENROUTER_MODEL` matches a premium-tier pattern. Set `AGENTMEMORY_SUPPRESS_COST_WARNING=1` to silence once you've made an informed choice.
+
+Quality vs cost tradeoff for memory work: compression is a summarization task with relatively loose quality bars (the agent re-reads the summary, not the user). DeepSeek-V4-Pro / Qwen3-Coder land within rounding error of Sonnet on this task while costing ~10× less. Save the premium-tier models for queries you read directly.
+
+Sources: [OpenRouter pricing for Sonnet 4.6](https://openrouter.ai/anthropic/claude-sonnet-4.6/pricing), [DeepSeek V4 Pro](https://openrouter.ai/deepseek/deepseek-v4-pro), [DeepSeek pricing notes](https://api-docs.deepseek.com/quick_start/pricing/).
+
+### Multi-agent memory isolation (`AGENT_ID`)
+
+In multi-agent setups where several roles share one agentmemory server (architect / developer / reviewer / researcher / support-agent), set `AGENT_ID` so each role's memory is scoped to itself instead of polluting a shared namespace:
+
+```env
+TEAM_ID=company
+USER_ID=engineering-team
+AGENT_ID=architect
+```
+
+Behavior:
+- `mem::remember` stamps `agentId` on every Memory record.
+- `POST /agentmemory/session/start` stamps `agentId` on the session row (request body `agentId` overrides the env per call).
+- `GET /agentmemory/memories` filters by the env's `AGENT_ID` by default. Override per-request with `?agentId=<role>`, or `?agentId=*` to see memories from every agent.
+- When `AGENT_ID` is unset, memory remains unscoped (legacy behavior).
+
 ### Ports
 
 agentmemory + iii-engine bind four ports by default. If a restart fails with `port in use`, this table tells you which process to look for.

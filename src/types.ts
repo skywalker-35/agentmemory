@@ -11,6 +11,11 @@ export interface Session {
   firstPrompt?: string;
   summary?: string;
   commitShas?: string[];
+  // #554: optional agent role for multi-agent setups (architect /
+  // developer / reviewer / researcher / support-agent). Populated from
+  // AGENT_ID env at session-start time; queries filter on it so an
+  // agent only sees its own role's memory by default.
+  agentId?: string;
 }
 
 export interface CommitLink {
@@ -98,6 +103,10 @@ export interface Memory {
   forgetAfter?: string;
   imageRef?: string;
   imageData?: string;
+  // #554: optional agent role this memory belongs to. When AGENT_ID is
+  // set on the writing session, that value is stamped here so future
+  // recall can filter by agent without leaking patterns across roles.
+  agentId?: string;
 }
 
 export interface SessionSummary {
@@ -475,6 +484,14 @@ export interface TeamConfig {
   teamId: string;
   userId: string;
   mode: "shared" | "private";
+}
+
+// #554: agent-role scope, orthogonal to team/user. Populated from
+// AGENT_ID env. Optional — when unset, memory is unscoped (legacy
+// behavior). When set, sessions + memories stamp the agentId, and
+// recall filters to the current agent's role by default.
+export interface AgentScope {
+  agentId: string;
 }
 
 export interface TeamSharedItem {

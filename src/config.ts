@@ -91,9 +91,30 @@ function detectProvider(env: Record<string, string>): ProviderConfig {
     };
   }
   if (hasRealValue(env["OPENROUTER_API_KEY"])) {
+    const model =
+      env["OPENROUTER_MODEL"] || "anthropic/claude-sonnet-4-20250514";
+    // #613: warn when the configured OpenRouter model is in the
+    // premium tier and likely to burn money on background compression.
+    // Captured workload data shows ~$5/35h on claude-sonnet-4 vs
+    // ~$0.46/35h on deepseek-v4-pro for the same compression mix.
+    // Heuristic match avoids hard-coding a pricing table.
+    if (
+      /sonnet|opus|gpt-4o(?!.*mini)|gpt-4-turbo/i.test(model) &&
+      env["AGENTMEMORY_SUPPRESS_COST_WARNING"] !== "1" &&
+      env["AGENTMEMORY_SUPPRESS_COST_WARNING"] !== "true"
+    ) {
+      process.stderr.write(
+        `[agentmemory] OPENROUTER_MODEL=${model} is in the premium tier. ` +
+          `Background compression on this model can cost $5+/day under active use. ` +
+          `Cheaper alternatives with comparable quality for memory compression: ` +
+          `deepseek/deepseek-v4-pro, deepseek/deepseek-chat, qwen/qwen3-coder. ` +
+          `See README "Cost-aware model selection" for the full table. ` +
+          `Set AGENTMEMORY_SUPPRESS_COST_WARNING=1 to silence.\n`,
+      );
+    }
     return {
       provider: "openrouter",
-      model: env["OPENROUTER_MODEL"] || "anthropic/claude-sonnet-4-20250514",
+      model,
       maxTokens,
     };
   }
@@ -242,6 +263,22 @@ export function loadTeamConfig(): TeamConfig | null {
   if (!teamId || !userId) return null;
   const mode = env["TEAM_MODE"] === "shared" ? "shared" : "private";
   return { teamId, userId, mode };
+}
+
+// #554: optional AGENT_ID env for multi-agent memory isolation.
+// Returns null when unset so memory stays unscoped (legacy behavior).
+// Trimmed + length-capped to keep KV writes well-formed.
+export function loadAgentScope(): { agentId: string } | null {
+  const env = getMergedEnv();
+  const raw = env["AGENT_ID"];
+  if (!raw) return null;
+  const agentId = raw.trim().slice(0, 128);
+  if (!agentId) return null;
+  return { agentId };
+}
+
+export function getAgentId(): string | undefined {
+  return loadAgentScope()?.agentId;
 }
 
 export function loadSnapshotConfig(): {

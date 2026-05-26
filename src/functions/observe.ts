@@ -8,6 +8,7 @@ import { withKeyedLock } from "../state/keyed-mutex.js";
 import { isAutoCompressEnabled } from "../config.js";
 import { buildSyntheticCompression } from "./compress-synthetic.js";
 import { getSearchIndex, vectorIndexAddGuarded } from "./search.js";
+import { getAgentId } from "../config.js";
 import { logger } from "../logger.js";
 
 export function extractImage(d: unknown): string | undefined {
@@ -133,6 +134,22 @@ export function registerObserveFunction(
           }
         }
 
+        // #554: inherit agentId from the parent session so every
+        // observation carries the role that wrote it. Pre-existing
+        // session takes precedence (multi-agent runtime stamped at
+        // session/start), env AGENT_ID is the fallback for the
+        // implicit-create path (#638) where session doesn't exist yet.
+        // We reuse this lookup later for observationCount/firstPrompt.
+        const existingSession = await kv.get<{
+          agentId?: string;
+          observationCount?: number;
+          firstPrompt?: string;
+        }>(KV.sessions, payload.sessionId);
+        const inheritedAgentId = existingSession?.agentId ?? getAgentId();
+        if (inheritedAgentId) {
+          raw.agentId = inheritedAgentId;
+        }
+
         if (pendingImageData && (pendingImageData.startsWith("data:image/") || pendingImageData.startsWith("iVBORw0KGgo") || pendingImageData.startsWith("/9j/"))) {
           const { saveImageToDisk } = await import("../utils/image-store.js");
           const { filePath, bytesWritten } = await saveImageToDisk(pendingImageData);
@@ -190,10 +207,7 @@ export function registerObserveFunction(
           action: TriggerAction.Void(),
         });
 
-        const session = await kv.get<{ observationCount?: number; firstPrompt?: string }>(
-          KV.sessions,
-          payload.sessionId,
-        );
+        const session = existingSession;
         if (session) {
           const updates: Array<{ type: "set"; path: string; value: unknown }> = [
             { type: "set", path: "updatedAt", value: new Date().toISOString() },
@@ -241,6 +255,9 @@ export function registerObserveFunction(
             updatedAt: ts,
             status: "active",
             observationCount: 1,
+            // #554: implicit-create path also stamps agentId so the
+            // session row matches its child observations.
+            ...(inheritedAgentId ? { agentId: inheritedAgentId } : {}),
             ...(trimmedPrompt && trimmedPrompt.length > 0
               ? { firstPrompt: trimmedPrompt }
               : {}),

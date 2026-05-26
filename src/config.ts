@@ -268,17 +268,33 @@ export function loadTeamConfig(): TeamConfig | null {
 // #554: optional AGENT_ID env for multi-agent memory isolation.
 // Returns null when unset so memory stays unscoped (legacy behavior).
 // Trimmed + length-capped to keep KV writes well-formed.
-export function loadAgentScope(): { agentId: string } | null {
+//
+// Filtering is gated by AGENTMEMORY_AGENT_SCOPE:
+//   "shared"   (default) — tag everything, do not filter recall paths
+//   "isolated"           — tag everything AND filter recall paths
+export function loadAgentScope(): {
+  agentId: string;
+  mode: "shared" | "isolated";
+} | null {
   const env = getMergedEnv();
   const raw = env["AGENT_ID"];
   if (!raw) return null;
   const agentId = raw.trim().slice(0, 128);
   if (!agentId) return null;
-  return { agentId };
+  const mode = env["AGENTMEMORY_AGENT_SCOPE"] === "isolated"
+    ? "isolated"
+    : "shared";
+  return { agentId, mode };
 }
 
 export function getAgentId(): string | undefined {
   return loadAgentScope()?.agentId;
+}
+
+// True only when AGENT_ID is set AND scope=isolated. Recall paths
+// consult this to decide whether to filter.
+export function isAgentScopeIsolated(): boolean {
+  return loadAgentScope()?.mode === "isolated";
 }
 
 export function loadSnapshotConfig(): {

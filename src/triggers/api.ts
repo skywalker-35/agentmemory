@@ -19,6 +19,7 @@ import {
   detectEmbeddingProvider,
   detectLlmProviderKind,
   getAgentId,
+  isAgentScopeIsolated,
 } from "../config.js";
 
 type Response = {
@@ -759,7 +760,23 @@ export function registerApiTriggers(
       const authErr = checkAuth(req, secret);
       if (authErr) return authErr;
       const sessions = await kv.list<Session>(KV.sessions);
-      return { status_code: 200, body: { sessions } };
+      // #554: agent-scope filter — isolated mode hides sessions
+      // belonging to other roles. ?agentId=* opts out.
+      const queryAgentId = req.query_params?.["agentId"];
+      const wildcardAgent =
+        typeof queryAgentId === "string" && queryAgentId === "*";
+      const explicitAgentId =
+        typeof queryAgentId === "string" && queryAgentId.trim().length > 0
+          ? queryAgentId.trim()
+          : undefined;
+      const filterAgentId = wildcardAgent
+        ? undefined
+        : explicitAgentId ??
+          (isAgentScopeIsolated() ? getAgentId() : undefined);
+      const filtered = filterAgentId
+        ? sessions.filter((s) => s.agentId === filterAgentId)
+        : sessions;
+      return { status_code: 200, body: { sessions: filtered } };
     },
   );
   sdk.registerTrigger({
@@ -768,7 +785,7 @@ export function registerApiTriggers(
     config: { api_path: "/agentmemory/sessions", http_method: "GET" },
   });
 
-  sdk.registerFunction("api::observations", 
+  sdk.registerFunction("api::observations",
     async (req: ApiRequest): Promise<Response> => {
       const authErr = checkAuth(req, secret);
       if (authErr) return authErr;
@@ -778,7 +795,23 @@ export function registerApiTriggers(
       const observations = await kv.list<CompressedObservation>(
         KV.observations(sessionId),
       );
-      return { status_code: 200, body: { observations } };
+      // #554: same agent-scope filter as /memories. Caller can override
+      // with ?agentId=<role> or ?agentId=*.
+      const queryAgentId = req.query_params?.["agentId"];
+      const wildcardAgent =
+        typeof queryAgentId === "string" && queryAgentId === "*";
+      const explicitAgentId =
+        typeof queryAgentId === "string" && queryAgentId.trim().length > 0
+          ? queryAgentId.trim()
+          : undefined;
+      const filterAgentId = wildcardAgent
+        ? undefined
+        : explicitAgentId ??
+          (isAgentScopeIsolated() ? getAgentId() : undefined);
+      const filtered = filterAgentId
+        ? observations.filter((o) => o.agentId === filterAgentId)
+        : observations;
+      return { status_code: 200, body: { observations: filtered } };
     },
   );
   sdk.registerTrigger({
@@ -1501,20 +1534,30 @@ export function registerApiTriggers(
       if (authErr) return authErr;
       const memories = await kv.list<import("../types.js").Memory>(KV.memories);
       const latest = req.query_params?.["latest"] === "true";
-      // #554: agentId filter. Request param wins, env AGENT_ID fallback.
-      // Pass agentId=* to explicitly opt out of the env-default scope and
-      // see memories from every agent.
+      // #554: agentId filter. Request param wins, env AGENT_ID (when
+      // scope=isolated) is the fallback. Shared mode keeps the tag but
+      // does not restrict the list endpoint. Pass agentId=* to opt out
+      // of the env scope entirely. includeOrphans=true surfaces
+      // pre-AGENT_ID memories whose agentId is undefined.
       const queryAgentId = req.query_params?.["agentId"];
       const wildcardAgent =
         typeof queryAgentId === "string" && queryAgentId === "*";
+      const explicitAgentId =
+        typeof queryAgentId === "string" && queryAgentId.trim().length > 0
+          ? queryAgentId.trim()
+          : undefined;
+      const includeOrphans =
+        req.query_params?.["includeOrphans"] === "true";
       const filterAgentId = wildcardAgent
         ? undefined
-        : typeof queryAgentId === "string" && queryAgentId.trim().length > 0
-          ? queryAgentId.trim()
-          : getAgentId();
+        : explicitAgentId ?? (isAgentScopeIsolated() ? getAgentId() : undefined);
       let filtered = latest ? memories.filter((m) => m.isLatest) : memories;
       if (filterAgentId) {
-        filtered = filtered.filter((m) => m.agentId === filterAgentId);
+        filtered = filtered.filter(
+          (m) =>
+            m.agentId === filterAgentId ||
+            (includeOrphans && m.agentId === undefined),
+        );
       }
 
       // #544: viewer + `agentmemory status` were hitting this endpoint to

@@ -9,6 +9,7 @@ import type {
 import { KV } from "../state/schema.js";
 import { StateKV } from "../state/kv.js";
 import { recordAccessBatch } from "./access-tracker.js";
+import { getAgentId, isAgentScopeIsolated } from "../config.js";
 import { logger } from "../logger.js";
 
 // Compact mode trims each lesson's content for at-a-glance display. The
@@ -27,6 +28,10 @@ export function registerSmartSearchFunction(
       limit?: number;
       project?: string;
       includeLessons?: boolean;
+      // #554: optional per-call agent filter for runtimes routing many
+      // roles through one server. "*" opts out of the env-default
+      // scope and returns hits from every agent.
+      agentId?: string;
     }) => {
 
       if (data.expandIds && data.expandIds.length > 0) {
@@ -92,7 +97,25 @@ export function registerSmartSearchFunction(
           : Promise.resolve([]),
       ]);
 
-      const compact: CompactSearchResult[] = hybridResults.map((r) => ({
+      // #554: agent-scope filter for hybrid hits. Request param wins,
+      // env AGENT_ID is the fallback. "*" explicitly bypasses the env
+      // scope. Filter only applies when scope=isolated OR the caller
+      // passes an explicit non-"*" agentId — shared mode keeps the
+      // tag but does not restrict recall.
+      const isolated = isAgentScopeIsolated();
+      const explicitAgentId =
+        typeof data.agentId === "string" && data.agentId.trim().length > 0
+          ? data.agentId.trim()
+          : undefined;
+      const wildcardAgent = explicitAgentId === "*";
+      const filterAgentId = wildcardAgent
+        ? undefined
+        : explicitAgentId ?? (isolated ? getAgentId() : undefined);
+      const filteredHybrid = filterAgentId
+        ? hybridResults.filter((r) => r.observation.agentId === filterAgentId)
+        : hybridResults;
+
+      const compact: CompactSearchResult[] = filteredHybrid.map((r) => ({
         obsId: r.observation.id,
         sessionId: r.sessionId,
         title: r.observation.title,

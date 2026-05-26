@@ -1111,21 +1111,31 @@ Quality vs cost tradeoff for memory work: compression is a summarization task wi
 
 Sources: [OpenRouter pricing for Sonnet 4.6](https://openrouter.ai/anthropic/claude-sonnet-4.6/pricing), [DeepSeek V4 Pro](https://openrouter.ai/deepseek/deepseek-v4-pro), [DeepSeek pricing notes](https://api-docs.deepseek.com/quick_start/pricing/).
 
-### Multi-agent memory isolation (`AGENT_ID`)
+### Multi-agent memory (`AGENT_ID` + `AGENTMEMORY_AGENT_SCOPE`)
 
-In multi-agent setups where several roles share one agentmemory server (architect / developer / reviewer / researcher / support-agent), set `AGENT_ID` so each role's memory is scoped to itself instead of polluting a shared namespace:
+In multi-agent setups where several roles share one agentmemory server (architect / developer / reviewer / researcher / support-agent), `AGENT_ID` tags every write with the role that made it. `AGENTMEMORY_AGENT_SCOPE` controls whether recall filters by that tag.
 
 ```env
 TEAM_ID=company
 USER_ID=engineering-team
 AGENT_ID=architect
+AGENTMEMORY_AGENT_SCOPE=isolated  # optional; default "shared"
 ```
 
-Behavior:
-- `mem::remember` stamps `agentId` on every Memory record.
-- `POST /agentmemory/session/start` stamps `agentId` on the session row (request body `agentId` overrides the env per call).
-- `GET /agentmemory/memories` filters by the env's `AGENT_ID` by default. Override per-request with `?agentId=<role>`, or `?agentId=*` to see memories from every agent.
-- When `AGENT_ID` is unset, memory remains unscoped (legacy behavior).
+Two modes:
+
+| Mode | Tag writes | Filter recall | When to use |
+|------|------------|---------------|-------------|
+| `shared` (default) | yes | no | Cross-agent context with audit trail. Architect can see what developer noted, but every row records who said it. |
+| `isolated` | yes | yes | Strict separation. Architect never sees developer's observations / memories / sessions. |
+
+What gets tagged when `AGENT_ID` is set: `Session.agentId`, `RawObservation.agentId`, `CompressedObservation.agentId`, `Memory.agentId`. The role flows from `api::session::start` → `mem::observe` → `mem::compress` → KV.
+
+What gets filtered in isolated mode: `mem::smart-search`, `/agentmemory/memories`, `/agentmemory/observations`, `/agentmemory/sessions`. Each endpoint accepts `?agentId=<role>` to override per-request, and `?agentId=*` to opt out of the env scope entirely. `/memories` also accepts `?includeOrphans=true` to surface pre-AGENT_ID memories whose `agentId` is undefined.
+
+Per-call override at the SDK / REST layer: every mutating endpoint (`/session/start`, `/remember`) accepts an `agentId` field in the request body that wins over the env. Useful for runtimes routing many roles through one server process.
+
+When `AGENT_ID` is unset, memory remains unscoped (legacy behavior, no tags, no filters).
 
 ### Ports
 

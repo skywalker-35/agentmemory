@@ -11,6 +11,21 @@
 </p>
 
 <p align="center">
+  <a href="README.md">English</a> |
+  <a href="READMEs/README.zh-CN.md">简体中文</a> |
+  <a href="READMEs/README.zh-TW.md">繁體中文</a> |
+  <a href="READMEs/README.ja-JP.md">日本語</a> |
+  <a href="READMEs/README.ko-KR.md">한국어</a> |
+  <a href="READMEs/README.es-ES.md">Español</a> |
+  <a href="READMEs/README.tr-TR.md">Türkçe</a> |
+  <a href="READMEs/README.ru-RU.md">Русский</a> |
+  <a href="READMEs/README.hi-IN.md">हिन्दी</a> |
+  <a href="READMEs/README.pt-BR.md">Português</a> |
+  <a href="READMEs/README.fr-FR.md">Français</a> |
+  <a href="READMEs/README.de-DE.md">Deutsch</a>
+</p>
+
+<p align="center">
   <a href="https://trendshift.io/repositories/25123" target="_blank"><img src="https://trendshift.io/api/badge/repositories/25123" alt="rohitg00/agentmemory | Trendshift" width="250" height="55"/></a>
 </p>
 

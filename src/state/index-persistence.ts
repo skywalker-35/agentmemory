@@ -1,12 +1,13 @@
-import { randomUUID } from "node:crypto";
 import { SearchIndex } from "./search-index.js";
 import { VectorIndex } from "./vector-index.js";
 import type { StateKV } from "./kv.js";
-import { KV } from "./schema.js";
+import { KV, generateId } from "./schema.js";
 import { logger } from "../logger.js";
+import { safeAudit } from "../functions/audit.js";
 
 const DEBOUNCE_MS = 5000;
 const FAILURE_LOG_THROTTLE_MS = 60_000;
+const INDEX_PERSISTENCE_FUNCTION_ID = "mem::index-persistence";
 const BM25_KEY = "data";
 const BM25_MANIFEST_KEY = "data:manifest";
 const BM25_SHARD_SCOPE_PREFIX = `${KV.bm25Index}:bm25:`;
@@ -38,7 +39,30 @@ function shardChars(options: IndexPersistenceOptions): number {
 }
 
 function createIndexGeneration(): string {
-  return `${Date.now().toString(36)}-${randomUUID().replace(/-/g, "")}`;
+  return generateId("idx");
+}
+
+function statePath(scope: string, key: string): string {
+  return `${scope}/${key}`;
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function isValidShardDescriptor(
+  shard: unknown,
+): shard is IndexShardManifest["shards"][number] {
+  if (!shard || typeof shard !== "object") return false;
+  const candidate = shard as { scope?: unknown; key?: unknown; chars?: unknown };
+  return (
+    typeof candidate.scope === "string" &&
+    candidate.scope.length > 0 &&
+    typeof candidate.key === "string" &&
+    candidate.key.length > 0 &&
+    Number.isInteger(candidate.chars) &&
+    candidate.chars >= 0
+  );
 }
 
 export class IndexPersistence {
@@ -70,7 +94,7 @@ export class IndexPersistence {
     }
     try {
       await this.saveBm25Index(this.bm25.serialize());
-      if (this.vector && this.vector.size > 0) {
+      if (this.vector) {
         await this.saveVectorIndex(this.vector.serialize());
       }
     } catch (err) {
@@ -166,8 +190,17 @@ export class IndexPersistence {
       shards.push({ scope, key: INDEX_SHARD_KEY, chars: chunk.length });
       try {
         await this.kv.set(scope, INDEX_SHARD_KEY, chunk);
+        await this.auditIndexPersistence("shard_write", [
+          statePath(scope, INDEX_SHARD_KEY),
+        ], {
+          scope,
+          key: INDEX_SHARD_KEY,
+          manifestKey,
+          generation,
+          chars: chunk.length,
+        });
       } catch (err) {
-        await this.deleteShards(shards);
+        await this.deleteShards(shards, "shard_write_rollback");
         throw err;
       }
     }
@@ -184,30 +217,87 @@ export class IndexPersistence {
         manifestKey,
         nextManifest,
       );
+      await this.auditIndexPersistence("manifest_publish", [
+        statePath(KV.bm25Index, manifestKey),
+      ], {
+        manifestKey,
+        generation,
+        chars: serialized.length,
+        shards: shards.length,
+        result: "committed",
+      });
     } catch (err) {
-      if (!(await this.isManifestPublished(manifestKey, nextManifest))) {
-        await this.deleteShards(shards);
+      if (await this.isManifestPublished(manifestKey, nextManifest)) {
+        await this.auditIndexPersistence("manifest_publish", [
+          statePath(KV.bm25Index, manifestKey),
+        ], {
+          manifestKey,
+          generation,
+          chars: serialized.length,
+          shards: shards.length,
+          result: "committed_after_error",
+          error: errorMessage(err),
+        });
+      } else {
+        await this.deleteShards(shards, "manifest_publish_rollback");
       }
       throw err;
     }
 
-    await this.kv.delete(KV.bm25Index, legacyKey).catch(() => {});
+    await this.deleteKey(KV.bm25Index, legacyKey, "legacy_cleanup");
     if (previous?.v === 1 && Array.isArray(previous.shards)) {
       const currentShardIds = new Set(
         shards.map((shard) => `${shard.scope}\0${shard.key}`),
       );
       for (const shard of previous.shards) {
         if (currentShardIds.has(`${shard.scope}\0${shard.key}`)) continue;
-        await this.deleteShards([shard]);
+        await this.deleteShards([shard], "previous_generation_cleanup");
       }
     }
   }
 
+  private async auditIndexPersistence(
+    action: string,
+    targetIds: string[],
+    details: Record<string, unknown>,
+  ): Promise<void> {
+    await safeAudit(
+      this.kv,
+      "index_persist",
+      INDEX_PERSISTENCE_FUNCTION_ID,
+      targetIds,
+      { action, ...details },
+    );
+  }
+
+  private async deleteKey(
+    scope: string,
+    key: string,
+    reason: string,
+  ): Promise<void> {
+    let result = "deleted";
+    let error: string | undefined;
+    try {
+      await this.kv.delete(scope, key);
+    } catch (err) {
+      result = "failed";
+      error = errorMessage(err);
+    }
+    await this.auditIndexPersistence("delete", [statePath(scope, key)], {
+      scope,
+      key,
+      reason,
+      result,
+      error,
+    });
+  }
+
   private async deleteShards(
     shards: IndexShardManifest["shards"],
+    reason: string,
   ): Promise<void> {
     for (const shard of shards) {
-      await this.kv.delete(shard.scope, shard.key).catch(() => {});
+      await this.deleteKey(shard.scope, shard.key, reason);
     }
   }
 
@@ -251,18 +341,44 @@ export class IndexPersistence {
     manifestKey: string,
     label: string,
   ): Promise<string | null> {
-    const manifest = await this.kv
-      .get<IndexShardManifest>(KV.bm25Index, manifestKey)
-      .catch(() => null);
-    if (manifest !== null) {
-      return this.loadManifestData(manifest, label);
+    const manifest = await this.readIndexValue<IndexShardManifest>(
+      KV.bm25Index,
+      manifestKey,
+      label,
+      "manifest",
+    );
+    if (!manifest.ok) return null;
+    if (manifest.value !== null) {
+      return this.loadManifestData(manifest.value, label);
     }
 
-    const legacy = await this.kv
-      .get<string>(KV.bm25Index, legacyKey)
-      .catch(() => null);
-    if (legacy && typeof legacy === "string") return legacy;
+    const legacy = await this.readIndexValue<string>(
+      KV.bm25Index,
+      legacyKey,
+      label,
+      "legacy",
+    );
+    if (!legacy.ok) return null;
+    if (legacy.value && typeof legacy.value === "string") return legacy.value;
     return null;
+  }
+
+  private async readIndexValue<T>(
+    scope: string,
+    key: string,
+    label: string,
+    source: "manifest" | "legacy",
+  ): Promise<{ ok: true; value: T | null } | { ok: false }> {
+    try {
+      return { ok: true, value: await this.kv.get<T>(scope, key) };
+    } catch (err) {
+      logger.warn(`index persistence: ${label} ${source} read failed`, {
+        scope,
+        key,
+        message: errorMessage(err),
+      });
+      return { ok: false };
+    }
   }
 
   private async loadManifestData(
@@ -272,17 +388,28 @@ export class IndexPersistence {
     if (
       manifest.v !== 1 ||
       !Array.isArray(manifest.shards) ||
-      manifest.shards.length === 0
+      manifest.shards.length === 0 ||
+      !Number.isInteger(manifest.chars) ||
+      manifest.chars < 0
     ) {
       logger.warn(`index persistence: ${label} shard manifest invalid`);
       return null;
     }
+    for (const shard of manifest.shards) {
+      if (!isValidShardDescriptor(shard)) {
+        logger.warn(`index persistence: ${label} shard manifest invalid`);
+        return null;
+      }
+    }
+    const loadedShards = await Promise.all(
+      manifest.shards.map(async (shard) => ({
+        shard,
+        chunk: await this.kv.get<string>(shard.scope, shard.key).catch(() => null),
+      })),
+    );
     const chunks: string[] = [];
     let chars = 0;
-    for (const shard of manifest.shards) {
-      const chunk = await this.kv
-        .get<string>(shard.scope, shard.key)
-        .catch(() => null);
+    for (const { shard, chunk } of loadedShards) {
       if (typeof chunk !== "string") {
         logger.warn(`index persistence: ${label} shard missing`, {
           scope: shard.scope,

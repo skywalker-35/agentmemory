@@ -154,6 +154,48 @@ describe("IndexPersistence", () => {
     expect(loaded.vector!.size).toBe(1);
   });
 
+  it("fails closed instead of falling back when manifest reads fail", async () => {
+    const legacy = makeBm25("obs_legacy", "legacy stale snapshot");
+    await kv.set(BM25_SCOPE, BM25_LEGACY_KEY, legacy.serialize());
+    const failingKv = {
+      ...kv,
+      get: vi.fn(async <T>(scope: string, key: string): Promise<T | null> => {
+        if (scope === BM25_SCOPE && key === BM25_MANIFEST_KEY) {
+          throw new Error("manifest backend unavailable");
+        }
+        return kv.get(scope, key);
+      }),
+    };
+
+    const loaded = await new IndexPersistence(
+      failingKv as never,
+      new SearchIndex(),
+      null,
+    ).load();
+
+    expect(loaded.bm25).toBeNull();
+  });
+
+  it("fails closed when legacy snapshot reads fail", async () => {
+    const failingKv = {
+      ...kv,
+      get: vi.fn(async <T>(scope: string, key: string): Promise<T | null> => {
+        if (scope === BM25_SCOPE && key === BM25_LEGACY_KEY) {
+          throw new Error("legacy backend unavailable");
+        }
+        return kv.get(scope, key);
+      }),
+    };
+
+    const loaded = await new IndexPersistence(
+      failingKv as never,
+      new SearchIndex(),
+      null,
+    ).load();
+
+    expect(loaded.bm25).toBeNull();
+  });
+
   it("loads sharded manifests that omit optional generation metadata", async () => {
     const bm25 = makeBm25("obs_1", "deterministic shard auth");
     const serialized = bm25.serialize();
@@ -230,6 +272,37 @@ describe("IndexPersistence", () => {
     const loaded = await persistence.load();
     expect(loaded.vector).not.toBeNull();
     expect(loaded.vector!.size).toBe(1);
+  });
+
+  it("persists empty vector snapshots so cleared vectors do not reload", async () => {
+    const previousBm25 = makeBm25("obs_old", "alpha previous snapshot");
+    const previousVector = makeVector("obs_old");
+    await new IndexPersistence(kv as never, previousBm25, previousVector, {
+      shardChars: 80,
+      createGeneration: () => "gen_old",
+    }).save();
+
+    const nextBm25 = makeBm25("obs_new", "bravo new snapshot");
+    const emptyVector = new VectorIndex();
+    await new IndexPersistence(kv as never, nextBm25, emptyVector, {
+      shardChars: 80,
+      createGeneration: () => "gen_empty",
+    }).save();
+
+    const vectorManifest = await kv.get<TestIndexShardManifest>(
+      BM25_SCOPE,
+      VECTOR_MANIFEST_KEY,
+    );
+    expect(vectorManifest).not.toBeNull();
+    expect(vectorManifest!.generation).toBe("gen_empty");
+    const loaded = await new IndexPersistence(
+      kv as never,
+      new SearchIndex(),
+      null,
+    ).load();
+    expect(loaded.bm25!.search("bravo").length).toBe(1);
+    expect(loaded.vector).not.toBeNull();
+    expect(loaded.vector!.size).toBe(0);
   });
 
   it("avoids one oversized state::set string payload for persisted indexes", async () => {
@@ -567,6 +640,32 @@ describe("IndexPersistence", () => {
     ).load();
 
     expect(loaded.bm25).toBeNull();
+  });
+
+  it("fails closed before reading invalid shard descriptors", async () => {
+    await kv.set<TestIndexShardManifest>(BM25_SCOPE, BM25_MANIFEST_KEY, {
+      v: 1,
+      chars: 10,
+      shards: [{ scope: "", key: "data", chars: 10 }],
+    });
+    const guardedKv = {
+      ...kv,
+      get: vi.fn(async <T>(scope: string, key: string): Promise<T | null> => {
+        if (scope === "") {
+          throw new Error("invalid shard descriptor was read");
+        }
+        return kv.get(scope, key);
+      }),
+    };
+
+    const loaded = await new IndexPersistence(
+      guardedKv as never,
+      new SearchIndex(),
+      null,
+    ).load();
+
+    expect(loaded.bm25).toBeNull();
+    expect(guardedKv.get).not.toHaveBeenCalledWith("", "data");
   });
 
   it("scheduleSave debounces multiple calls", async () => {

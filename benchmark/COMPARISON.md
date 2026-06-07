@@ -26,26 +26,26 @@ Full agentmemory methodology: [`LONGMEMEVAL.md`](LONGMEMEVAL.md)
 
 ## Feature Matrix
 
-| Feature | agentmemory | mem0 | Letta/MemGPT | Khoj | claude-mem | Hippo |
+| Feature | agentmemory | mem0 | Letta/MemGPT | Khoj | supermemory | Hippo |
 |---|---|---|---|---|---|---|
-| **GitHub stars** | Growing | 58K+ | 23K+ | 35K+ | 81K+ | Trending |
-| **Type** | Memory engine + MCP server | Memory layer API | Full agent runtime | Personal AI | MCP server | Memory system |
-| **Auto-capture via hooks** | ✅ 12 lifecycle hooks | ❌ Manual `add()` | ❌ Agent self-edits | ❌ Manual | ✅ Limited | ❌ Manual |
-| **Search strategy** | BM25 + Vector + Graph | Vector + Graph | Vector (archival) | Semantic | FTS5 | Decay-weighted |
+| **GitHub stars** | Growing | 58K+ | 23K+ | 35K+ | 26K+ | Trending |
+| **Type** | Memory engine + MCP server | Memory layer API | Full agent runtime | Personal AI | Memory API + app | Memory system |
+| **Auto-capture via hooks** | ✅ 12 lifecycle hooks | ❌ Manual `add()` | ❌ Agent self-edits | ❌ Manual | ❌ API-side extraction | ❌ Manual |
+| **Search strategy** | BM25 + Vector + Graph | Vector + Graph | Vector (archival) | Semantic | Vector + RAG | Decay-weighted |
 | **Multi-agent coordination** | ✅ Leases + signals + mesh | ❌ | Runtime-internal only | ❌ | ❌ | Multi-agent shared |
-| **Framework lock-in** | None | None | High | Standalone | Claude Code | None |
-| **External deps** | None | Qdrant/pgvector | Postgres + vector | Multiple | None (SQLite) | None |
-| **Self-hostable** | ✅ default | Optional | Optional | ✅ | ✅ | ✅ |
+| **Framework lock-in** | None | None | High | Standalone | None (drop-in wrappers) | None |
+| **External deps** | None | Qdrant/pgvector | Postgres + vector | Multiple | Managed cloud | None |
+| **Self-hostable** | ✅ default | Optional | Optional | ✅ | ❌ Cloud-only | ✅ |
 | **Knowledge graph** | ✅ Entity extraction + BFS | ✅ Mem0g variant | ❌ | Doc links | ❌ | ❌ |
-| **Memory decay** | ✅ Ebbinghaus + tiered | ❌ | ❌ | ❌ | ❌ | ✅ Half-lives |
+| **Memory decay** | ✅ Ebbinghaus + tiered | ❌ | ❌ | ❌ | ✅ Auto-forget | ✅ Half-lives |
 | **4-tier consolidation** | ✅ Working → episodic → semantic → procedural | ❌ | OS-inspired tiers | ❌ | ❌ | Episodic + semantic |
-| **Version / supersession** | ✅ Jaccard-based | Passive | ❌ | ❌ | ❌ | ❌ |
-| **Real-time viewer** | ✅ Port 3113 | Cloud dashboard | Cloud dashboard | Web UI | ❌ | ❌ |
+| **Version / supersession** | ✅ Jaccard-based | Passive | ❌ | ❌ | ✅ Auto-resolve | ❌ |
+| **Real-time viewer** | ✅ Port 3113 | Cloud dashboard | Cloud dashboard | Web UI | Cloud dashboard | ❌ |
 | **Privacy filtering** | ✅ Strips secrets pre-store | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Obsidian export** | ✅ Built-in | ❌ | ❌ | Native format | ❌ | ❌ |
-| **Cross-agent** | ✅ MCP + REST | API calls | Within runtime | Standalone | Claude-only | Multi-agent shared |
+| **Cross-agent** | ✅ MCP + REST | API calls | Within runtime | Standalone | MCP + API | Multi-agent shared |
 | **Audit trail** | ✅ All mutations logged | ❌ | Limited | ❌ | ❌ | ❌ |
-| **Language SDKs** | Any (REST + MCP) | Python + TS | Python only | API | Any (MCP) | Node |
+| **Language SDKs** | Any (REST + MCP) | Python + TS | Python only | API | Python + TS | Node |
 
 ---
 
@@ -59,8 +59,8 @@ The main reason to use persistent memory at all: token cost. Here's what one yea
 | LLM-summarized memory (extraction-based) | ~650K | ~$500 | Lossy — summarization drops detail |
 | **agentmemory (API embeddings)** | **~170K** | **~$10** | Token-budgeted, only relevant memories injected |
 | **agentmemory (local embeddings)** | **~170K** | **$0** | `all-MiniLM-L6-v2` runs in-process |
-| claude-mem | Reports ~10x savings | — | SQLite + FTS5 + 3-layer filter |
-| Mem0 | Varies by integration | — | Extraction-based, no token budget |
+| supermemory | Not published | Cloud pricing | Managed API, no local token budget |
+| Mem0 | Varies by integration | Varies | Extraction-based, no token budget |
 
 **agentmemory ships with a built-in token savings calculator.** Run `npx @agentmemory/agentmemory status` after a few sessions and you'll see exactly how many tokens you've saved vs. pasting the full history.
 
@@ -97,10 +97,11 @@ This isn't a "agentmemory wins everything" page. Different tools solve different
 - Obsidian/Notion/Emacs integrations
 - Scheduled automations and research tasks
 
-**Choose claude-mem if you want:**
-- Claude Code-specific tooling with SQLite + FTS5
-- Minimal install footprint
-- Token compression via LLM
+**Choose supermemory if you want:**
+- A managed memory API with server-side auto-extraction and automatic forgetting
+- Drop-in wrappers for major AI frameworks (Vercel AI, LangChain, LangGraph)
+- A hosted dashboard with no infrastructure to run yourself
+- RAG plus memory served from a single query
 
 **Choose Hippo if you want:**
 - Biologically-inspired memory model (decay, consolidation, sleep)

@@ -28,7 +28,7 @@ Full agentmemory methodology: [`LONGMEMEVAL.md`](LONGMEMEVAL.md)
 
 | Feature | agentmemory | mem0 | Letta/MemGPT | Khoj | claude-mem | Hippo |
 |---|---|---|---|---|---|---|
-| **GitHub stars** | Growing | 53K+ | 22K+ | 34K+ | 46K+ | Trending |
+| **GitHub stars** | Growing | 58K+ | 23K+ | 35K+ | 81K+ | Trending |
 | **Type** | Memory engine + MCP server | Memory layer API | Full agent runtime | Personal AI | MCP server | Memory system |
 | **Auto-capture via hooks** | ✅ 12 lifecycle hooks | ❌ Manual `add()` | ❌ Agent self-edits | ❌ Manual | ✅ Limited | ❌ Manual |
 | **Search strategy** | BM25 + Vector + Graph | Vector + Graph | Vector (archival) | Semantic | FTS5 | Decay-weighted |

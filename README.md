@@ -284,8 +284,8 @@ Latest release notes: [CHANGELOG.md](CHANGELOG.md).
 <tr>
 <th width="20%"></th>
 <th width="20%">agentmemory</th>
-<th width="20%">mem0 (53K ⭐)</th>
-<th width="20%">Letta / MemGPT (22K ⭐)</th>
+<th width="20%">mem0 (58K ⭐)</th>
+<th width="20%">Letta / MemGPT (23K ⭐)</th>
 <th width="20%">Built-in (CLAUDE.md)</th>
 </tr>
 <tr>
@@ -366,6 +366,8 @@ Latest release notes: [CHANGELOG.md](CHANGELOG.md).
 <td>Yes</td>
 </tr>
 </table>
+
+<sub>Benchmark note: agentmemory's R@5 is measured on LongMemEval-S; the mem0 and Letta figures are their published LoCoMo numbers, a different dataset. They are shown side by side for ballpark only, not as a head-to-head on identical data. Full methodology and per-system sources: <a href="benchmark/COMPARISON.md"><code>benchmark/COMPARISON.md</code></a>. Star counts are approximate and drift over time.</sub>
 
 ---
 

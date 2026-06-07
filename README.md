@@ -277,7 +277,7 @@ Latest release notes: [CHANGELOG.md](CHANGELOG.md).
 </tr>
 </table>
 
-> Embedding model: `all-MiniLM-L6-v2` (local, free, no API key). Full reports: [`benchmark/LONGMEMEVAL.md`](benchmark/LONGMEMEVAL.md), [`benchmark/QUALITY.md`](benchmark/QUALITY.md), [`benchmark/SCALE.md`](benchmark/SCALE.md). Competitor comparison: [`benchmark/COMPARISON.md`](benchmark/COMPARISON.md) — agentmemory vs mem0, Letta, Khoj, claude-mem, Hippo.
+> Embedding model: `all-MiniLM-L6-v2` (local, free, no API key). Full reports: [`benchmark/LONGMEMEVAL.md`](benchmark/LONGMEMEVAL.md), [`benchmark/QUALITY.md`](benchmark/QUALITY.md), [`benchmark/SCALE.md`](benchmark/SCALE.md). Competitor comparison: [`benchmark/COMPARISON.md`](benchmark/COMPARISON.md) covering agentmemory vs mem0, Letta, Khoj, supermemory, MemPalace, Hippo.
 
 **Reproduce locally:** [`eval/README.md`](eval/README.md) — adapter-pluggable harness for LongMemEval `_s` (public 500-Q) + `coding-agent-life-v1` (in-house 15-session corpus). Grep / vector / agentmemory adapters score side-by-side, NDJSON output, published scorecards land in [`docs/benchmarks/`](docs/benchmarks/).
 
@@ -289,17 +289,25 @@ Latest release notes: [CHANGELOG.md](CHANGELOG.md).
 
 <table>
 <tr>
-<th width="20%"></th>
-<th width="20%">agentmemory</th>
-<th width="20%">mem0 (53K ⭐)</th>
-<th width="20%">Letta / MemGPT (22K ⭐)</th>
-<th width="20%">Built-in (CLAUDE.md)</th>
+<th></th>
+<th>agentmemory</th>
+<th>mem0 (58K ⭐)</th>
+<th>Letta / MemGPT (23K ⭐)</th>
+<th>Khoj (35K ⭐)</th>
+<th>supermemory (26K ⭐)</th>
+<th>MemPalace (54K ⭐)</th>
+<th>Hippo</th>
+<th>Built-in (CLAUDE.md)</th>
 </tr>
 <tr>
 <td><strong>Type</strong></td>
 <td>Memory engine + MCP server</td>
 <td>Memory layer API</td>
 <td>Full agent runtime</td>
+<td>Personal AI</td>
+<td>Memory API + app</td>
+<td>Vector memory (OSS)</td>
+<td>Memory system</td>
 <td>Static file</td>
 </tr>
 <tr>
@@ -307,6 +315,10 @@ Latest release notes: [CHANGELOG.md](CHANGELOG.md).
 <td><strong>95.2%</strong></td>
 <td>68.5% (LoCoMo)</td>
 <td>83.2% (LoCoMo)</td>
+<td>N/A</td>
+<td>Self-reported</td>
+<td>~96.6% (self-reported)</td>
+<td>N/A</td>
 <td>N/A (grep)</td>
 </tr>
 <tr>
@@ -314,6 +326,10 @@ Latest release notes: [CHANGELOG.md](CHANGELOG.md).
 <td>12 hooks (zero manual effort)</td>
 <td>Manual <code>add()</code> calls</td>
 <td>Agent self-edits</td>
+<td>Manual</td>
+<td>API-side extraction</td>
+<td>Manual</td>
+<td>Manual</td>
 <td>Manual editing</td>
 </tr>
 <tr>
@@ -321,6 +337,10 @@ Latest release notes: [CHANGELOG.md](CHANGELOG.md).
 <td>BM25 + Vector + Graph (RRF fusion)</td>
 <td>Vector + Graph</td>
 <td>Vector (archival)</td>
+<td>Semantic</td>
+<td>Vector + RAG</td>
+<td>Vector-only</td>
+<td>Decay-weighted</td>
 <td>Loads everything into context</td>
 </tr>
 <tr>
@@ -328,6 +348,10 @@ Latest release notes: [CHANGELOG.md](CHANGELOG.md).
 <td>MCP + REST + leases + signals</td>
 <td>API (no coordination)</td>
 <td>Within Letta runtime only</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td>Multi-agent shared</td>
 <td>Per-agent files</td>
 </tr>
 <tr>
@@ -335,6 +359,10 @@ Latest release notes: [CHANGELOG.md](CHANGELOG.md).
 <td>None (any MCP client)</td>
 <td>None</td>
 <td>High (must use Letta)</td>
+<td>Standalone</td>
+<td>None</td>
+<td>None</td>
+<td>None</td>
 <td>Per-agent format</td>
 </tr>
 <tr>
@@ -342,6 +370,10 @@ Latest release notes: [CHANGELOG.md](CHANGELOG.md).
 <td>None (SQLite + iii-engine)</td>
 <td>Qdrant / pgvector</td>
 <td>Postgres + vector DB</td>
+<td>Multiple</td>
+<td>Managed cloud</td>
+<td>Vector store</td>
+<td>None</td>
 <td>None</td>
 </tr>
 <tr>
@@ -349,6 +381,10 @@ Latest release notes: [CHANGELOG.md](CHANGELOG.md).
 <td>4-tier consolidation + decay + auto-forget</td>
 <td>Passive extraction</td>
 <td>Agent-managed</td>
+<td>Manual</td>
+<td>Auto-forget</td>
+<td>None</td>
+<td>Decay + consolidation</td>
 <td>Manual pruning</td>
 </tr>
 <tr>
@@ -356,6 +392,10 @@ Latest release notes: [CHANGELOG.md](CHANGELOG.md).
 <td>~1,900 tokens/session ($10/yr)</td>
 <td>Varies by integration</td>
 <td>Core memory in context</td>
+<td>Varies</td>
+<td>Cloud pricing</td>
+<td>No token budget</td>
+<td>Varies</td>
 <td>22K+ tokens at 240 obs</td>
 </tr>
 <tr>
@@ -363,6 +403,10 @@ Latest release notes: [CHANGELOG.md](CHANGELOG.md).
 <td>Yes (port 3113)</td>
 <td>Cloud dashboard</td>
 <td>Cloud dashboard</td>
+<td>Web UI</td>
+<td>Cloud dashboard</td>
+<td>No</td>
+<td>No</td>
 <td>No</td>
 </tr>
 <tr>
@@ -371,8 +415,14 @@ Latest release notes: [CHANGELOG.md](CHANGELOG.md).
 <td>Optional</td>
 <td>Optional</td>
 <td>Yes</td>
+<td>No (cloud-only)</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
 </tr>
 </table>
+
+<sub>Benchmark note: only agentmemory's R@5 is our own measured result (LongMemEval-S, reproducible from <a href="benchmark/COMPARISON.md"><code>benchmark/COMPARISON.md</code></a>). The mem0 and Letta figures are their published LoCoMo numbers (a different dataset); the MemPalace and supermemory figures are vendor self-reported claims we have not independently reproduced. Shown side by side for ballpark only, not a head-to-head on identical data. Star counts are approximate and drift over time.</sub>
 
 ---
 

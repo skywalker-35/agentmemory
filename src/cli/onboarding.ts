@@ -27,7 +27,7 @@ import { fileURLToPath } from "node:url";
 import * as p from "@clack/prompts";
 import { appendFileSync, readFileSync } from "node:fs";
 import { readPrefs, writePrefs } from "./preferences.js";
-import { resolveAdapter, runAdapter } from "./connect/index.js";
+import { ADAPTERS, resolveAdapter, runAdapter } from "./connect/index.js";
 import type { ConnectResult } from "./connect/types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -35,30 +35,31 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // Native plugin row — these agents ship an agentmemory plugin or
 // first-party integration. Glyphs match SkillKit's published set
 // where they overlap; the rest fall back to the generic `◇`.
-const NATIVE_AGENTS: { value: string; label: string; glyph: string }[] = [
-  { value: "claude-code", label: "Claude Code", glyph: "⟁" },
-  { value: "copilot-cli", label: "GitHub Copilot CLI", glyph: "◈" },
-  { value: "codex", label: "Codex", glyph: "◎" },
-  { value: "openhuman", label: "OpenHuman", glyph: "◇" },
-  { value: "openclaw", label: "OpenClaw", glyph: "◇" },
-  { value: "hermes", label: "Hermes", glyph: "◇" },
-  { value: "pi", label: "Pi", glyph: "◇" },
-  { value: "cursor", label: "Cursor", glyph: "◫" },
-  { value: "gemini-cli", label: "Gemini CLI", glyph: "✦" },
-];
+// Display glyph per agent; the agent set itself comes from connect's
+// ADAPTERS (single source of truth) so the picker can never drift from
+// what `agentmemory connect` can actually wire (#872). Unknown adapters
+// fall back to a neutral glyph.
+const AGENT_GLYPH: Record<string, string> = {
+  "claude-code": "⟁",
+  "copilot-cli": "◈",
+  codex: "◎",
+  cursor: "◫",
+  "gemini-cli": "✦",
+  opencode: "⬡",
+};
 
-// MCP-only row — these agents use the MCP server we ship rather than
-// a native plugin.
-const MCP_AGENTS: { value: string; label: string; glyph: string }[] = [
-  { value: "opencode", label: "OpenCode", glyph: "⬡" },
-  { value: "cline", label: "Cline", glyph: "◇" },
-  { value: "goose", label: "Goose", glyph: "◇" },
-  { value: "kilo", label: "Kilo", glyph: "◇" },
-  { value: "aider", label: "Aider", glyph: "◇" },
-  { value: "claude-desktop", label: "Claude Desktop", glyph: "⟁" },
-  { value: "windsurf", label: "Windsurf", glyph: "◇" },
-  { value: "roo", label: "Roo", glyph: "◇" },
-];
+// Agents wired through a native plugin / lifecycle hooks rather than the
+// MCP server. Cosmetic grouping only; everything still goes through an
+// adapter.
+const NATIVE_AGENTS = new Set([
+  "claude-code",
+  "copilot-cli",
+  "codex",
+  "openhuman",
+  "openclaw",
+  "hermes",
+  "pi",
+]);
 
 const PROVIDERS: { value: string; label: string; envKey: string | null }[] = [
   { value: "anthropic", label: "Anthropic — claude", envKey: "ANTHROPIC_API_KEY" },
@@ -78,17 +79,15 @@ const PROVIDER_COST_HINTS: Record<string, string> = {
 };
 
 export function buildAgentOptions(): { value: string; label: string; hint?: string }[] {
+  const options = ADAPTERS.map((a) => ({
+    value: a.name,
+    label: `${AGENT_GLYPH[a.name] ?? "◇"} ${a.displayName}`,
+    hint: NATIVE_AGENTS.has(a.name) ? "native plugin" : "MCP server",
+  }));
+  // Native plugins first, then MCP-only, each keeping ADAPTERS order.
   return [
-    ...NATIVE_AGENTS.map((a) => ({
-      value: a.value,
-      label: `${a.glyph} ${a.label}`,
-      hint: "native plugin",
-    })),
-    ...MCP_AGENTS.map((a) => ({
-      value: a.value,
-      label: `${a.glyph} ${a.label}`,
-      hint: "MCP server",
-    })),
+    ...options.filter((o) => o.hint === "native plugin"),
+    ...options.filter((o) => o.hint === "MCP server"),
   ];
 }
 

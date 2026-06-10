@@ -15,11 +15,15 @@ export interface InstallModeInputs extends NpxSignals {
   cwdPackageName: string | null;
 }
 
+// npm_config_user_agent starts with "npm/" for every npm-mediated run
+// (npm run, npm exec, lifecycle scripts), so it cannot distinguish npx.
+// Only explicit npx markers count: the npx lifecycle event, the _npx
+// cache directory in argv[1], or a UA that names npx itself.
 export function isNpxInvocation(signals: NpxSignals): boolean {
   if (signals.npmLifecycleEvent === "npx") return true;
   if (signals.argv1.includes("_npx")) return true;
   const ua = signals.npmUserAgent ?? "";
-  if (ua.startsWith("npm/") || ua.includes(" npm/")) return true;
+  if (ua.includes("npx/")) return true;
   return false;
 }
 

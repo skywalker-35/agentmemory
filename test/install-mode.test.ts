@@ -30,16 +30,20 @@ describe("isNpxInvocation", () => {
     expect(isNpxInvocation(inputs({ argv1 }))).toBe(true);
   });
 
-  it("detects an npm user agent prefix", () => {
-    expect(isNpxInvocation(inputs({ npmUserAgent: "npm/10.8.2 node/v22.0.0 darwin arm64" }))).toBe(true);
+  it("ignores a plain npm user agent, which every npm-mediated run sets", () => {
+    expect(isNpxInvocation(inputs({ npmUserAgent: "npm/10.8.2 node/v22.0.0 darwin arm64" }))).toBe(false);
   });
 
-  it("detects npm embedded mid user agent", () => {
-    expect(isNpxInvocation(inputs({ npmUserAgent: "workspaces/false npm/10.8.2" }))).toBe(true);
+  it("ignores npm embedded mid user agent", () => {
+    expect(isNpxInvocation(inputs({ npmUserAgent: "workspaces/false npm/10.8.2" }))).toBe(false);
   });
 
-  it("flags pnpm user agents that embed npm/?", () => {
-    expect(isNpxInvocation(inputs({ npmUserAgent: "pnpm/9.0.0 npm/? node/v22.0.0" }))).toBe(true);
+  it("ignores pnpm user agents that embed npm/?", () => {
+    expect(isNpxInvocation(inputs({ npmUserAgent: "pnpm/9.0.0 npm/? node/v22.0.0" }))).toBe(false);
+  });
+
+  it("detects a user agent that names npx explicitly", () => {
+    expect(isNpxInvocation(inputs({ npmUserAgent: "npx/10.8.2 node/v22.0.0 darwin arm64" }))).toBe(true);
   });
 
   it("returns false for a user agent without npm", () => {
@@ -88,6 +92,17 @@ describe("detectInstallMode", () => {
 
   it("global when the cwd has no package.json and no npx signals", () => {
     expect(detectInstallMode(inputs())).toBe("global");
+  });
+
+  it("global when run through an npm script in a foreign project", () => {
+    const mode = detectInstallMode(
+      inputs({
+        cwdPackageName: "some-users-app",
+        npmLifecycleEvent: "upgrade-memory",
+        npmUserAgent: "npm/10.8.2 node/v22.0.0 darwin arm64",
+      }),
+    );
+    expect(mode).toBe("global");
   });
 });
 

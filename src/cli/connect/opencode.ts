@@ -20,15 +20,16 @@ import {
 const CONFIG_PATH = join(homedir(), ".config", "opencode", "opencode.json");
 const DETECT_DIR = join(homedir(), ".config", "opencode");
 
+// No `environment` block: OpenCode does not expand shell-style
+// `${VAR:-default}` values, and writing them literally would override the
+// user's real shell AGENTMEMORY_URL with an unexpanded string. The stdio
+// child inherits the shell environment (an exported AGENTMEMORY_URL /
+// AGENTMEMORY_SECRET still reaches the server), and the @agentmemory/mcp
+// shim defaults unset vars (URL -> localhost:3111, no secret, all tools).
 const OPENCODE_ENTRY = {
   type: "local",
   command: ["npx", "-y", "@agentmemory/mcp"],
   enabled: true,
-  environment: {
-    AGENTMEMORY_URL: "${AGENTMEMORY_URL:-http://localhost:3111}",
-    AGENTMEMORY_SECRET: "${AGENTMEMORY_SECRET:-}",
-    AGENTMEMORY_TOOLS: "${AGENTMEMORY_TOOLS:-all}",
-  },
 };
 
 type OpencodeConfig = Record<string, unknown>;
@@ -54,9 +55,13 @@ export const adapter: ConnectAdapter = {
   async install(opts: ConnectOptions): Promise<ConnectResult> {
     const existing = readJsonSafe<OpencodeConfig>(CONFIG_PATH);
     const next: OpencodeConfig = existing ? { ...existing } : {};
-    const mcp: Record<string, McpEntry> = {
-      ...((next["mcp"] as Record<string, McpEntry>) ?? {}),
-    };
+    const existingMcp = next["mcp"];
+    const mcp: Record<string, McpEntry> =
+      existingMcp &&
+      typeof existingMcp === "object" &&
+      !Array.isArray(existingMcp)
+        ? { ...(existingMcp as Record<string, McpEntry>) }
+        : {};
 
     const alreadyHas = entryMatches(mcp["agentmemory"]);
     if (alreadyHas && !opts.force) {

@@ -84,7 +84,6 @@ export function buildAgentOptions(): { value: string; label: string; hint?: stri
     label: `${AGENT_GLYPH[a.name] ?? "◇"} ${a.displayName}`,
     hint: NATIVE_AGENTS.has(a.name) ? "native plugin" : "MCP server",
   }));
-  // Native plugins first, then MCP-only, each keeping ADAPTERS order.
   return [
     ...options.filter((o) => o.hint === "native plugin"),
     ...options.filter((o) => o.hint === "MCP server"),

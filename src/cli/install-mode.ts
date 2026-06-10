@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-export const AGENTMEMORY_PACKAGE_NAME = "@agentmemory/agentmemory";
+export const OWN_PACKAGE_NAME = "@agentmemory/agentmemory";
 
 export type InstallMode = "local-dev" | "npx" | "global";
 
@@ -24,7 +24,7 @@ export function isNpxInvocation(signals: NpxSignals): boolean {
 }
 
 export function detectInstallMode(inputs: InstallModeInputs): InstallMode {
-  if (inputs.cwdPackageName === AGENTMEMORY_PACKAGE_NAME) return "local-dev";
+  if (inputs.cwdPackageName === OWN_PACKAGE_NAME) return "local-dev";
   if (isNpxInvocation(inputs)) return "npx";
   return "global";
 }

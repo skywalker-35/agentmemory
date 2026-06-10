@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
-  AGENTMEMORY_PACKAGE_NAME,
+  OWN_PACKAGE_NAME,
   detectInstallMode,
   isNpxInvocation,
   readCwdPackageName,
@@ -53,14 +53,14 @@ describe("isNpxInvocation", () => {
 
 describe("detectInstallMode", () => {
   it("local-dev when the cwd package.json names the agentmemory package", () => {
-    const mode = detectInstallMode(inputs({ cwdPackageName: AGENTMEMORY_PACKAGE_NAME }));
+    const mode = detectInstallMode(inputs({ cwdPackageName: OWN_PACKAGE_NAME }));
     expect(mode).toBe("local-dev");
   });
 
   it("local-dev wins even when npx signals are present", () => {
     const mode = detectInstallMode(
       inputs({
-        cwdPackageName: AGENTMEMORY_PACKAGE_NAME,
+        cwdPackageName: OWN_PACKAGE_NAME,
         npmLifecycleEvent: "npx",
         npmUserAgent: "npm/10.8.2 node/v22.0.0 darwin arm64",
       }),
